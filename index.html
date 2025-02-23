@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Collaborative Whiteboard</title>
+  <style>
+    canvas { border: 1px solid #000; }
+    #controls { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Collaborative Whiteboard</h1>
+  <div id="controls">
+    <label for="color">Color:</label>
+    <input type="color" id="color" value="#000000">
+    <label for="brushSize">Brush Size:</label>
+    <input type="range" id="brushSize" min="1" max="50" value="5">
+    <button id="clear">Clear Board</button>
+  </div>
+  <canvas id="board" width="800" height="600"></canvas>
+
+  <!-- Include socket.io client from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+  <script>
+    const socket = io('http://localhost:3000');
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+
+    // UI controls
+    const colorPicker = document.getElementById('color');
+    const brushSizeInput = document.getElementById('brushSize');
+    const clearButton = document.getElementById('clear');
+
+    let drawing = false;
+    let lastPos = { x: 0, y: 0 };
+
+    // Helper: draw a line on the canvas.
+    function drawLine(from, to, color, brushSize) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+
+    // Replay full board state when connected.
+    socket.on('boardState', (actions) => {
+      actions.forEach(action => {
+        drawLine(action.from, action.to, action.color, action.brushSize);
+      });
+    });
+
+    // Listen for drawing events from the server.
+    socket.on('drawing', (data) => {
+      drawLine(data.from, data.to, data.color, data.brushSize);
+    });
+
+    // Listen for clear event.
+    socket.on('clear', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    // Start drawing on mousedown.
+    canvas.addEventListener('mousedown', (e) => {
+      drawing = true;
+      lastPos = { x: e.offsetX, y: e.offsetY };
+    });
+
+    // Stop drawing on mouseup or mouseleave.
+    canvas.addEventListener('mouseup', () => { drawing = false; });
+    canvas.addEventListener('mouseleave', () => { drawing = false; });
+
+    // When moving the mouse, emit drawing actions to the server.
+    canvas.addEventListener('mousemove', (e) => {
+      if (!drawing) return;
+      const currentPos = { x: e.offsetX, y: e.offsetY };
+
+      const drawingData = {
+        from: lastPos,
+        to: currentPos,
+        color: colorPicker.value,
+        brushSize: brushSizeInput.value
+      };
+
+      // Emit the drawing event.
+      socket.emit('drawing', drawingData);
+
+      // Update lastPos for next segment.
+      lastPos = currentPos;
+    });
+
+    // Clear board button emits a clear event.
+    clearButton.addEventListener('click', () => {
+      socket.emit('clear');
+    });
+  </script>
+</body>
+</html>
